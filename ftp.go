@@ -37,10 +37,10 @@ func (ftp *FTP) Close() error {
 }
 
 type (
-// WalkFunc is called on each path in a Walk. Errors are filtered through WalkFunc
+	// WalkFunc is called on each path in a Walk. Errors are filtered through WalkFunc
 	WalkFunc func(path string, info os.FileMode, err error) error
 
-// RetrFunc is passed to Retr and is the handler for the stream received for a given path
+	// RetrFunc is passed to Retr and is the handler for the stream received for a given path
 	RetrFunc func(r io.Reader) error
 )
 
@@ -267,13 +267,13 @@ func (ftp *FTP) Type(t TypeCode) error {
 type TypeCode string
 
 const (
-// TypeASCII for ASCII
+	// TypeASCII for ASCII
 	TypeASCII = "A"
-// TypeEBCDIC for EBCDIC
+	// TypeEBCDIC for EBCDIC
 	TypeEBCDIC = "E"
-// TypeImage for an Image
+	// TypeImage for an Image
 	TypeImage = "I"
-// TypeLocal for local byte size
+	// TypeLocal for local byte size
 	TypeLocal = "L"
 )
 
@@ -520,8 +520,8 @@ func (ftp *FTP) Stat(path string) ([]string, error) {
 		return nil, err
 	}
 	if !strings.HasPrefix(stat, StatusFileStatus) &&
-	!strings.HasPrefix(stat, StatusDirectoryStatus) &&
-	!strings.HasPrefix(stat, StatusSystemStatus) {
+		!strings.HasPrefix(stat, StatusDirectoryStatus) &&
+		!strings.HasPrefix(stat, StatusSystemStatus) {
 		return nil, errors.New(stat)
 	}
 	if strings.HasPrefix(stat, StatusSystemStatus) {
@@ -548,6 +548,55 @@ func (ftp *FTP) Stat(path string) ([]string, error) {
 // Retr retrieves file from remote host at path, using retrFn to read from the remote file.
 func (ftp *FTP) Retr(path string, retrFn RetrFunc) (s string, err error) {
 	if err = ftp.Type(TypeImage); err != nil {
+		return
+	}
+
+	var port int
+	if port, err = ftp.Pasv(); err != nil {
+		return
+	}
+
+	if err = ftp.send("RETR %s", path); err != nil {
+		return
+	}
+
+	var pconn net.Conn
+	if pconn, err = ftp.newConnection(port); err != nil {
+		return
+	}
+	defer pconn.Close()
+
+	var line string
+	if line, err = ftp.receiveNoDiscard(); err != nil {
+		return
+	}
+
+	if !strings.HasPrefix(line, StatusFileOK) {
+		err = errors.New(line)
+		return
+	}
+
+	if err = retrFn(pconn); err != nil {
+		return
+	}
+
+	pconn.Close()
+
+	if line, err = ftp.receive(); err != nil {
+		return
+	}
+
+	if !strings.HasPrefix(line, StatusClosingDataConnection) {
+		err = errors.New(line)
+		return
+	}
+
+	return
+}
+
+// RetrASCII retrieves file in ASCII-Mode from remote host at path, using retrFn to read from the remote file.
+func (ftp *FTP) RetrASCII(path string, retrFn RetrFunc) (s string, err error) {
+	if err = ftp.Type(TypeASCII); err != nil {
 		return
 	}
 
@@ -773,4 +822,3 @@ func (ftp *FTP) Size(path string) (size int, err error) {
 
 	return strconv.Atoi(line[4 : len(line)-2])
 }
-
